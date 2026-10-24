@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>3D 地形互動：山丘與山崖</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a2e; font-family: 'PingFang HK', 'PingFang TC', 'Microsoft JhengHei', sans-serif; user-select: none; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+
+        /* ================= 頁面 1：卡片目錄 ================= */
+        #page-1-overlay {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: radial-gradient(circle at center, #1f2335 0%, #0d1117 100%);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 100; transition: opacity 0.8s ease-in-out, visibility 0.8s;
+        }
+        .main-title { color: white; font-size: 34px; letter-spacing: 6px; margin-bottom: 10px; text-shadow: 0 4px 10px rgba(0,0,0,0.8); font-weight: bold; }
+        .sub-title { color: #a9bccc; font-size: 16px; letter-spacing: 2px; margin-bottom: 12px; }
+        .goal-strip { color: #f1c40f; font-size: 14px; letter-spacing: 1px; margin-bottom: 38px; background: rgba(241,196,15,0.12); border: 1px solid rgba(241,196,15,0.4); padding: 8px 22px; border-radius: 20px; }
+
+        .cards-grid { display: flex; gap: 40px; flex-wrap: wrap; justify-content: center; padding: 0 20px; }
+        .holo-card {
+            width: 260px; height: 360px; border-radius: 16px; cursor: pointer;
+            position: relative; overflow: hidden;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6), 0 0 0 3px #2c3e50;
+            display: flex; flex-direction: column; justify-content: flex-end; padding: 22px; box-sizing: border-box;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s;
+        }
+        .holo-card:hover {
+            transform: translateY(-15px) scale(1.05); z-index: 10;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.8), 0 0 0 4px #f1c40f, 0 0 20px rgba(241, 196, 15, 0.5);
+        }
+        .holo-card::after {
+            content: ''; position: absolute; top: 0; left: -150%; width: 150%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), rgba(241,196,15,0.3), rgba(255,255,255,0.4), transparent);
+            transform: skewX(-25deg); transition: 0.5s; pointer-events: none;
+        }
+        .holo-card:hover::after { animation: holoGlance 1.5s infinite linear; }
+        @keyframes holoGlance { 0% { left: -150%; } 100% { left: 150%; } }
+
+        .card-graphic { position: absolute; top: 14%; left: 50%; transform: translateX(-50%); opacity: 0.9; }
+        .card-title { position: relative; z-index: 2; color: white; font-size: 32px; font-weight: bold; margin: 0; text-shadow: 0 3px 6px rgba(0,0,0,0.8); }
+        .card-subtitle { position: relative; z-index: 2; color: #f1c40f; font-size: 15px; font-weight: bold; margin-top: 4px; letter-spacing: 1px; }
+        .card-hint { position: relative; z-index: 2; color: rgba(255,255,255,0.85); font-size: 13px; margin-top: 10px; line-height: 1.5; }
+
+        /* 山丘卡：同心圓圖案 */
+        #card-hill { background: linear-gradient(135deg, #27ae60, #145a32); }
+        #card-hill .card-graphic { width: 130px; height: 130px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.45); display: flex; justify-content: center; align-items: center; box-shadow: inset 0 0 15px rgba(0,0,0,0.3); }
+        #card-hill .card-graphic::before { content:''; width: 84px; height: 84px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.5); position: absolute; }
+        #card-hill .card-graphic::after { content:''; width: 42px; height: 42px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.6); background: rgba(255,255,255,0.12); position: absolute; }
+
+        /* 山崖卡：重疊線圖案 */
+        #card-cliff { background: linear-gradient(135deg, #8e44ad, #2c3e50); }
+        #card-cliff .card-graphic { width: 130px; height: 130px; top: 16%; }
+        #card-cliff .card-graphic span { position: absolute; top: 8px; bottom: 8px; width: 3px; background: rgba(255,255,255,0.55); border-radius: 2px; }
+        #card-cliff .card-graphic span:nth-child(1) { left: 12px; }
+        #card-cliff .card-graphic span:nth-child(2) { left: 34px; }
+        #card-cliff .card-graphic span:nth-child(3) { left: 56px; }
+        #card-cliff .card-graphic span:nth-child(4) { left: 72px; width: 5px; background: rgba(255,255,255,0.9); box-shadow: 5px 0 0 rgba(255,255,255,0.7), 10px 0 0 rgba(255,255,255,0.5), 15px 0 0 rgba(255,255,255,0.35); }
+
+        /* ================= 頁面 2：3D 觀察頁 ================= */
+        #page-2-ui {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            pointer-events: none; z-index: 50; opacity: 0; visibility: hidden; transition: opacity 0.8s ease-in-out;
+        }
+        .header-ui { position: absolute; top: 20px; left: 20px; color: white; text-shadow: 0 2px 6px rgba(0,0,0,0.9); max-width: 420px; }
+        .header-ui h1 { margin: 0 0 8px 0; font-size: 32px; letter-spacing: 2px; border-left: 5px solid #f1c40f; padding-left: 10px; }
+        .header-ui p { margin: 0; font-size: 15px; color: #ecf0f1; font-weight: 500; line-height: 1.6; background: rgba(0,0,0,0.45); padding: 10px 12px; border-radius: 6px; backdrop-filter: blur(5px); }
+        .header-ui .keypoint { color: #f1c40f; font-weight: bold; }
+
+        .top-controls { position: absolute; top: 20px; right: 20px; display: flex; gap: 10px; pointer-events: auto; flex-wrap: wrap; justify-content: flex-end; }
+        .toggle-btn {
+            background: rgba(241,196,15,0.2); border: 1px solid #f1c40f; color: #f1c40f;
+            padding: 12px 18px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.3s;
+        }
+        .toggle-btn:hover, .toggle-btn.active { background: #f1c40f; color: #1a1a2e; }
+        .slice-btn {
+            background: rgba(231,76,60,0.2); border: 1px solid #e74c3c; color: #ff8a80;
+            padding: 12px 18px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.3s;
+        }
+        .slice-btn:hover, .slice-btn.active { background: #e74c3c; color: white; }
+
+        .bottom-controls { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); pointer-events: auto; }
+        .back-btn {
+            background: #e74c3c; color: white; border: none; padding: 12px 35px; border-radius: 30px;
+            font-size: 16px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(231,76,60,0.5); transition: transform 0.2s, background 0.2s;
+        }
+        .back-btn:hover { background: #c0392b; transform: scale(1.05); }
+
+        /* ================= 橫切面面板 ================= */
+        #slice-panel {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(30px);
+            width: min(720px, 92vw); background: rgba(13,17,23,0.92); border: 1px solid rgba(241,196,15,0.5);
+            border-radius: 14px; padding: 12px 16px 10px; pointer-events: auto; backdrop-filter: blur(8px);
+            opacity: 0; visibility: hidden; transition: all 0.4s ease;
+        }
+        #slice-panel.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+        #slice-panel .panel-title { color: #f1c40f; font-size: 14px; font-weight: bold; letter-spacing: 1px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+        #slice-panel .panel-title .tip { color: #a9bccc; font-weight: normal; font-size: 12px; }
+        #slice-canvas { width: 100%; height: 190px; display: block; background: #10151d; border-radius: 8px; }
+        .slider-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+        .slider-row label { color: #ecf0f1; font-size: 13px; white-space: nowrap; }
+        #slice-slider { flex: 1; accent-color: #e74c3c; height: 22px; cursor: pointer; }
+
+        @media (max-width: 800px) {
+            .holo-card { width: 180px; height: 260px; padding: 15px; }
+            .card-title { font-size: 22px; }
+            .header-ui h1 { font-size: 22px; }
+            .header-ui p { font-size: 12px; max-width: 62vw; }
+            #slice-canvas { height: 150px; }
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <!-- 頁面 1：卡片目錄 -->
+    <div id="page-1-overlay" style="opacity: 1; visibility: visible;">
+        <div class="main-title">等高線睇地形</div>
+        <div class="sub-title">山丘 與 山崖｜3D 互動圖鑑</div>
+        <div class="goal-strip">今日任務：淨睇等高線嘅形態，認出地勢形貌</div>
+        <div class="cards-grid">
+            <div class="holo-card" data-target="hill" id="card-hill">
+                <div class="card-graphic"></div>
+                <h2 class="card-title">山丘</h2><p class="card-subtitle">Hill</p>
+                <p class="card-hint">等高線呈同心圓<br>數值向內遞增 → 山頂</p>
+            </div>
+            <div class="holo-card" data-target="cliff" id="card-cliff">
+                <div class="card-graphic"><span></span><span></span><span></span><span></span></div>
+                <h2 class="card-title">山崖</h2><p class="card-subtitle">Cliff</p>
+                <p class="card-hint">等高線極度密集<br>甚至重疊 → 近乎垂直</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 頁面 2：3D 互動 UI -->
+    <div id="page-2-ui" style="opacity: 0; visibility: hidden;">
+        <div class="header-ui">
+            <h1 id="ui-title">山丘 (Hill)</h1>
+            <p id="ui-desc"></p>
+        </div>
+        <div class="top-controls">
+            <button class="toggle-btn" id="btn-toggle-contour">👁 顯示等高線</button>
+            <button class="slice-btn" id="btn-slice">🔪 切開睇橫切面</button>
+        </div>
+        <div class="bottom-controls">
+            <button class="back-btn" id="btn-back">返回圖鑑目錄</button>
+        </div>
+        <div id="slice-panel">
+            <div class="panel-title">
+                <span id="slice-title">A–B 橫切面（垂直間距 100 米）</span>
+                <span class="tip">紅點＝等高線穿過嘅位置：點愈密＝坡愈陡（密＝陡坡，疏＝緩坡）</span>
+            </div>
+            <canvas id="slice-canvas"></canvas>
+            <div class="slider-row">
+                <label>移動切割線</label>
+                <input type="range" id="slice-slider" min="-100" max="100" value="0" step="1">
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // ================= 1. 地形知識庫（配合教案口訣） =================
+        const terrainData = {
+            hill: {
+                title: "山丘 (Hill)",
+                desc: "地勢較高、頂部渾圓嘅隆起地形。等高線呈【同心圓】，數值向內遞增，中心最高點係山頂。等高線間距疏＝緩坡、密＝陡坡。記住口訣：同心圓，數值向內升＝山丘。",
+                camPos: new THREE.Vector3(12, 12, 15),
+                camTarget: new THREE.Vector3(0, 0, 0),
+                metersPerUnit: 100,          // 1 個模型單位 ≈ 100 米
+                width: 14, depth: 14
+            },
+            cliff: {
+                title: "山崖 (Cliff)",
+                desc: "近乎垂直嘅陡峭岩壁。因為坡度極大，等高線會極度密集，甚至【重疊成一條線】。記住口訣：線重疊，近乎垂直＝山崖。",
+                camPos: new THREE.Vector3(14, 8, 10),
+                camTarget: new THREE.Vector3(2, 2, 0),
+                metersPerUnit: 100,
+                width: 14, depth: 14
+            }
+        };
+
+        // ================= 2. 場景與光影 =================
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x78909c);
+        scene.fog = new THREE.FogExp2(0x78909c, 0.012);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 15, 25);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05;
+        controls.minDistance = 5;
+        controls.maxDistance = 40;
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+        const sunLight = new THREE.DirectionalLight(0xffeedd, 1.6);
+        sunLight.position.set(-10, 15, 12);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048; sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 50;
+        sunLight.shadow.camera.left = -12; sunLight.shadow.camera.right = 12;
+        sunLight.shadow.camera.top = 12; sunLight.shadow.camera.bottom = -12;
+        scene.add(sunLight);
+        const fillLight = new THREE.DirectionalLight(0xaaccff, 0.5);
+        fillLight.position.set(10, 5, -10);
+        scene.add(fillLight);
+
+        // ================= 3. 地形產生器（實心切片＋等高線） =================
+        function createSolidTerrain(width, depth, numContours, maxZ, colorPalette, heightFn) {
+            const group = new THREE.Group();
+            const geometry = new THREE.BoxGeometry(width, 6, depth, 128, 1, 128);
+            const positions = geometry.attributes.position;
+            const normals = geometry.attributes.normal;
+            const uvs = geometry.attributes.uv;
+
+            for (let i = 0; i < positions.count; i++) {
+                let x = positions.getX(i);
+                let y = positions.getY(i);
+                let z = positions.getZ(i);
+                let ny = normals.getY(i);
+                let terrainHeight = heightFn(x, z);
+                if (terrainHeight < 0.4) {
+                    let pseudoRand = Math.abs(Math.sin(x * 12.9898 + z * 78.233)) % 1;
+                    terrainHeight = 0.4 + (pseudoRand * 0.08);
+                }
+                if (y > 0) {
+                    positions.setY(i, terrainHeight);
+                    if (ny > 0.5) {
+                        uvs.setXY(i, 0.5, Math.max(0, Math.min(1, terrainHeight / maxZ)));
+                    } else {
+                        uvs.setXY(i, 0.5, 0.01);
+                    }
+                } else {
+                    positions.setY(i, -0.5);
+                    uvs.setXY(i, 0.5, 0.01);
+                }
+            }
+            geometry.computeVertexNormals();
+
+            const colorCanvas = document.createElement('canvas');
+            colorCanvas.width = 2; colorCanvas.height = 512;
+            const cctx = colorCanvas.getContext('2d');
+            const gradient = cctx.createLinearGradient(0, 512, 0, 0);
+            colorPalette.forEach(p => gradient.addColorStop(p.stop, p.color));
+            cctx.fillStyle = gradient; cctx.fillRect(0, 0, 2, 512);
+            for (let i = 0; i < 512; i += 3) { cctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.06})`; cctx.fillRect(0, i, 2, 4); }
+            const colorTex = new THREE.CanvasTexture(colorCanvas);
+            colorTex.colorSpace = THREE.SRGBColorSpace;
+            const material = new THREE.MeshStandardMaterial({ map: colorTex, roughness: 0.9, metalness: 0.05 });
+            const terrainMesh = new THREE.Mesh(geometry, material);
+            terrainMesh.castShadow = true; terrainMesh.receiveShadow = true;
+            group.add(terrainMesh);
+
+            // 等高線貼圖
+            const contourCanvas = document.createElement('canvas');
+            contourCanvas.width = 2; contourCanvas.height = 1024;
+            const actx = contourCanvas.getContext('2d');
+            actx.fillStyle = '#000000'; actx.fillRect(0, 0, 2, 1024);
+            actx.fillStyle = '#ffffff';
+            for (let i = 1; i < numContours; i++) { actx.fillRect(0, Math.floor((i / numContours) * 1024), 2, 3); }
+            const contourTex = new THREE.CanvasTexture(contourCanvas);
+            const contourMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, alphaMap: contourTex, transparent: true, opacity: 0.85, depthWrite: false });
+            const wireMesh = new THREE.Mesh(geometry, contourMaterial);
+            wireMesh.position.y = 0.02;
+            group.add(wireMesh);
+
+            const baseMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(width + 0.5, 0.6, depth + 0.5),
+                new THREE.MeshStandardMaterial({ color: 0x11161a, roughness: 0.8 })
+            );
+            baseMesh.position.y = -0.8; baseMesh.receiveShadow = true;
+            group.add(baseMesh);
+
+            // 切割平面（橫切面模式用，預設隱藏）
+            const cutPlane = new THREE.Mesh(
+                new THREE.PlaneGeometry(width + 0.6, 7),
+                new THREE.MeshBasicMaterial({ color: 0xe74c3c, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })
+            );
+            cutPlane.position.y = 2.5;
+            cutPlane.visible = false;
+            group.add(cutPlane);
+
+            return { group, wireMesh, cutPlane, heightFn, maxZ, width, depth };
+        }
+
+        // ================= 4. 生成兩種地形 =================
+        const terrainsConfig = {};
+        let currentTerrainId = null;
+
+        // 山丘 (Hill)：鐘形緩丘
+        terrainsConfig.hill = createSolidTerrain(14, 14, 10, 4.8, [
+            { stop: 0.0, color: '#2c3e50' }, { stop: 0.1, color: '#454a4d' },
+            { stop: 0.3, color: '#5c4033' }, { stop: 0.5, color: '#1e3f20' }, { stop: 0.9, color: '#2d5a27' }
+        ], (x, z) => {
+            let base = 4.0 * Math.exp(-(x * x + z * z) / 12);
+            return base + (Math.sin(x * 6) * Math.cos(z * 6)) * 0.06 + (Math.sin(x * 2 + z) * Math.cos(z * 2 - x)) * 0.1;
+        });
+
+        // 山崖 (Cliff)：一側近垂直斷落
+        terrainsConfig.cliff = createSolidTerrain(14, 14, 14, 5.5, [
+            { stop: 0.0, color: '#1a252c' }, { stop: 0.4, color: '#454a4d' }, { stop: 0.65, color: '#3a5a27' }, { stop: 1.0, color: '#3e7a31' }
+        ], (x, z) => {
+            let edgeDist = x + Math.pow(z, 2) * 0.15;
+            let base = 0.5 + 4.5 / (1 + Math.exp(2.5 * (edgeDist - 3.0)));
+            return base + (8 - x) * 0.05 + (Math.sin(x * 6) * Math.cos(z * 6)) * 0.04 + (Math.sin(x * 2 + z) * Math.cos(z * 2 - x)) * 0.1;
+        });
+
+        Object.values(terrainsConfig).forEach(t => { t.group.visible = false; scene.add(t.group); });
+
+        // ================= 5. 橫切面繪圖（2D Canvas） =================
+        const slicePanel = document.getElementById('slice-panel');
+        const sliceCanvas = document.getElementById('slice-canvas');
+        const sliceSlider = document.getElementById('slice-slider');
+        const sliceBtn = document.getElementById('btn-slice');
+        let sliceMode = false;
+        let sliceZ = 0; // 切割線 z 位置（模型單位）
+
+        function drawCrossSection() {
+            if (!currentTerrainId) return;
+            const t = terrainsConfig[currentTerrainId];
+            const info = terrainData[currentTerrainId];
+            const dpr = window.devicePixelRatio || 1;
+            const cw = sliceCanvas.clientWidth, ch = sliceCanvas.clientHeight;
+            sliceCanvas.width = cw * dpr; sliceCanvas.height = ch * dpr;
+            const ctx = sliceCanvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            ctx.clearRect(0, 0, cw, ch);
+
+            const halfW = t.width / 2;
+            const N = 240;
+            const pts = [];
+            let maxH = 0.5;
+            for (let i = 0; i <= N; i++) {
+                const x = -halfW + (i / N) * t.width;
+                let h = t.heightFn(x, sliceZ);
+                if (h < 0.4) h = 0.4;
+                pts.push({ x, h });
+                if (h > maxH) maxH = h;
+            }
+            const padL = 46, padR = 14, padT = 14, padB = 34;
+            const plotW = cw - padL - padR, plotH = ch - padT - padB;
+            const yMax = Math.ceil(maxH) + 0.5; // 模型單位
+            const X = v => padL + ((v + halfW) / t.width) * plotW;
+            const Y = v => padT + plotH - (v / yMax) * plotH;
+            const mPerUnit = info.metersPerUnit;
+
+            // 等高線層級虛線（每 100 米 = 1 單位）
+            ctx.font = "11px 'PingFang HK', sans-serif";
+            for (let lv = 1; lv < yMax; lv++) {
+                ctx.strokeStyle = "rgba(255,255,255,0.18)";
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath(); ctx.moveTo(padL, Y(lv)); ctx.lineTo(cw - padR, Y(lv)); ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = "rgba(255,255,255,0.55)";
+                ctx.fillText(`${lv * mPerUnit}米`, 6, Y(lv) + 4);
+            }
+
+            // 地形剖面填充
+            ctx.beginPath();
+            ctx.moveTo(X(pts[0].x), Y(0));
+            pts.forEach(p => ctx.lineTo(X(p.x), Y(p.h)));
+            ctx.lineTo(X(pts[pts.length - 1].x), Y(0));
+            ctx.closePath();
+            const grad = ctx.createLinearGradient(0, padT, 0, ch - padB);
+            grad.addColorStop(0, currentTerrainId === 'cliff' ? '#8e44ad' : '#2d5a27');
+            grad.addColorStop(1, '#1a252c');
+            ctx.fillStyle = grad; ctx.fill();
+            ctx.strokeStyle = "#f1c40f"; ctx.lineWidth = 2;
+            ctx.beginPath();
+            pts.forEach((p, i) => i === 0 ? ctx.moveTo(X(p.x), Y(p.h)) : ctx.lineTo(X(p.x), Y(p.h)));
+            ctx.stroke();
+
+            // 紅點：剖面穿越每 100 米層級嘅位置（＝等高線喺地圖上嘅位置）
+            const crossings = [];
+            for (let lv = 1; lv < yMax; lv++) {
+                for (let i = 0; i < pts.length - 1; i++) {
+                    const a = pts[i], b = pts[i + 1];
+                    if ((a.h - lv) * (b.h - lv) < 0) {
+                        const frac = (lv - a.h) / (b.h - a.h);
+                        const cx = a.x + frac * (b.x - a.x);
+                        crossings.push({ x: cx, lv });
+                    }
+                }
+            }
+            ctx.fillStyle = "#ff5252";
+            crossings.forEach(c => {
+                ctx.beginPath(); ctx.arc(X(c.x), Y(c.lv), 4, 0, Math.PI * 2); ctx.fill();
+            });
+            // 底部：等高線間距投影（密/疏即時可見）
+            const baseY = ch - 16;
+            ctx.strokeStyle = "rgba(255,255,255,0.35)";
+            ctx.beginPath(); ctx.moveTo(padL, baseY); ctx.lineTo(cw - padR, baseY); ctx.stroke();
+            ctx.strokeStyle = "#ff5252"; ctx.lineWidth = 2;
+            crossings.forEach(c => {
+                ctx.beginPath(); ctx.moveTo(X(c.x), baseY - 8); ctx.lineTo(X(c.x), baseY + 8); ctx.stroke();
+            });
+            ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.font = "11px 'PingFang HK', sans-serif";
+            ctx.fillText("← 等高線喺地圖上嘅間距（愈密＝愈陡）", padL + 6, ch - 4);
+            // A、B 標記
+            ctx.fillStyle = "#f1c40f"; ctx.font = "bold 13px 'PingFang HK', sans-serif";
+            ctx.fillText("A", padL - 16, ch - padB + 4);
+            ctx.fillText("B", cw - padR + 4, ch - padB + 4);
+        }
+
+        function syncCutPlane() {
+            if (!currentTerrainId) return;
+            const t = terrainsConfig[currentTerrainId];
+            t.cutPlane.visible = sliceMode;
+            t.cutPlane.position.z = sliceZ;
+        }
+
+        sliceSlider.addEventListener('input', () => {
+            if (!currentTerrainId) return;
+            const t = terrainsConfig[currentTerrainId];
+            sliceZ = (parseInt(sliceSlider.value, 10) / 100) * (t.depth / 2 - 0.5);
+            syncCutPlane();
+            drawCrossSection();
+        });
+
+        sliceBtn.addEventListener('click', () => {
+            sliceMode = !sliceMode;
+            slicePanel.classList.toggle('show', sliceMode);
+            sliceBtn.classList.toggle('active', sliceMode);
+            sliceBtn.textContent = sliceMode ? '🔪 收埋橫切面' : '🔪 切開睇橫切面';
+            syncCutPlane();
+            if (sliceMode) drawCrossSection();
+        });
+
+        // ================= 6. UI 切換邏輯 =================
+        const page1 = document.getElementById('page-1-overlay');
+        const page2 = document.getElementById('page-2-ui');
+        const cards = document.querySelectorAll('.holo-card');
+        const uiTitle = document.getElementById('ui-title');
+        const uiDesc = document.getElementById('ui-desc');
+        const btnToggleContour = document.getElementById('btn-toggle-contour');
+        let isAutoRotating = true;
+        let page1Timeout, page2Timeout;
+
+        function resetSliceUI() {
+            sliceMode = false;
+            slicePanel.classList.remove('show');
+            sliceBtn.classList.remove('active');
+            sliceBtn.textContent = '🔪 切開睇橫切面';
+            Object.values(terrainsConfig).forEach(t => t.cutPlane.visible = false);
+        }
+
+        cards.forEach(card => {
+            card.addEventListener('click', (e) => {
+                const targetId = e.currentTarget.getAttribute('data-target');
+                currentTerrainId = targetId;
+                resetSliceUI();
+
+                Object.values(terrainsConfig).forEach(t => t.group.visible = false);
+                const activeTerrain = terrainsConfig[targetId];
+                activeTerrain.group.visible = true;
+
+                if (activeTerrain.wireMesh.visible) {
+                    btnToggleContour.className = 'toggle-btn active'; btnToggleContour.textContent = '👁 隱藏等高線';
+                } else {
+                    btnToggleContour.className = 'toggle-btn'; btnToggleContour.textContent = '👁 顯示等高線';
+                }
+
+                uiTitle.textContent = terrainData[targetId].title;
+                uiDesc.innerHTML = terrainData[targetId].desc
+                    .replace(/【同心圓】/, '<span class="keypoint">同心圓</span>')
+                    .replace(/【重疊成一條線】/, '<span class="keypoint">重疊成一條線</span>');
+
+                if (page2Timeout) clearTimeout(page2Timeout);
+                page2.style.visibility = 'visible'; page2.style.opacity = '1';
+                if (page1Timeout) clearTimeout(page1Timeout);
+                page1.style.opacity = '0';
+                page1Timeout = setTimeout(() => { page1.style.visibility = 'hidden'; }, 800);
+
+                isAutoRotating = false;
+                sliceSlider.value = 0; sliceZ = 0;
+
+                let targetPos = terrainData[targetId].camPos;
+                let targetLook = terrainData[targetId].camTarget;
+                let currentPos = camera.position.clone();
+                let alpha = 0;
+                (function animateCamera() {
+                    alpha += 0.03;
+                    if (alpha <= 1) {
+                        camera.position.lerpVectors(currentPos, targetPos, alpha);
+                        camera.lookAt(targetLook);
+                        requestAnimationFrame(animateCamera);
+                    } else {
+                        controls.target.copy(targetLook);
+                    }
+                })();
+            });
+        });
+
+        document.getElementById('btn-back').addEventListener('click', () => {
+            resetSliceUI();
+            if (page1Timeout) clearTimeout(page1Timeout);
+            page1.style.visibility = 'visible'; page1.style.opacity = '1';
+            if (page2Timeout) clearTimeout(page2Timeout);
+            page2.style.opacity = '0';
+            page2Timeout = setTimeout(() => { page2.style.visibility = 'hidden'; }, 800);
+            isAutoRotating = true;
+            controls.target.set(0, 0, 0);
+            let currentPos = camera.position.clone();
+            let targetPos = new THREE.Vector3(0, 15, 25);
+            let alpha = 0;
+            (function animateBackCamera() {
+                alpha += 0.02;
+                if (alpha <= 1) {
+                    camera.position.lerpVectors(currentPos, targetPos, alpha);
+                    camera.lookAt(0, 0, 0);
+                    requestAnimationFrame(animateBackCamera);
+                }
+            })();
+        });
+
+        btnToggleContour.addEventListener('click', () => {
+            if (!currentTerrainId) return;
+            const wire = terrainsConfig[currentTerrainId].wireMesh;
+            wire.visible = !wire.visible;
+            if (wire.visible) {
+                btnToggleContour.classList.add('active'); btnToggleContour.textContent = '👁 隱藏等高線';
+            } else {
+                btnToggleContour.classList.remove('active'); btnToggleContour.textContent = '👁 顯示等高線';
+            }
+        });
+
+        // ================= 7. 渲染迴圈 =================
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            if (isAutoRotating) {
+                Object.values(terrainsConfig).forEach(t => t.group.rotation.y += 0.002);
+            } else {
+                Object.values(terrainsConfig).forEach(t => t.group.rotation.y = 0);
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            if (sliceMode) drawCrossSection();
+        });
+    </script>
+
+</body>
+</html>
